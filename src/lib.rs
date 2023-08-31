@@ -543,6 +543,56 @@ mod implementations {
         }
     }
 
+    pub mod box_region {
+        use crate::StableRegion;
+        use super::{Columnation, Region};
+
+        pub struct BoxRegion<R: Region> {
+            stable: StableRegion<R::Item>,
+            inner: R,
+        }
+
+        impl<R: Region> Default for BoxRegion<R> {
+            fn default() -> Self {
+                Self {
+                    stable: Default::default(),
+                    inner: Default::default(),
+                }
+            }
+        }
+
+        impl<R: Region> Region for BoxRegion<R> {
+            type Item = Box<R::Item>;
+
+            unsafe fn copy(&mut self, item: &Self::Item) -> Self::Item {
+                Box::from_raw(self.stable.copy_iter(std::iter::once(self.inner.copy(item))).as_mut_ptr())
+            }
+
+            fn clear(&mut self) {
+                self.stable.clear();
+                self.inner.clear();
+            }
+
+            fn reserve_items<'a, I>(&mut self, items: I) where Self: 'a, I: Iterator<Item=&'a Self::Item> + Clone {
+                self.stable.reserve(items.clone().count());
+                self.inner.reserve_items(items.map(|b| &**b))
+            }
+
+            fn reserve_regions<'a, I>(&mut self, regions: I) where Self: 'a, I: Iterator<Item=&'a Self> + Clone {
+                self.inner.reserve_regions(regions.map(|r| &r.inner))
+            }
+
+            fn heap_size(&self, mut callback: impl FnMut(usize, usize)) {
+                self.stable.heap_size(&mut callback);
+                self.inner.heap_size(callback);
+            }
+        }
+
+        impl<T: Columnation> Columnation for Box<T> {
+            type InnerRegion = BoxRegion<T::InnerRegion>;
+        }
+    }
+
     /// Implementations for `Result<T: Columnation, E: Columnation>`.
     pub mod result {
 
